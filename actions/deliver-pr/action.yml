@@ -93,6 +93,7 @@ runs:
         git push origin HEAD:${{ inputs.branch-name }} --force
 
     - name: Ensure PR exists
+      if: steps.check-changes.outputs.has-changes == 'true'
       id: pr-ops
       shell: bash
       env:
