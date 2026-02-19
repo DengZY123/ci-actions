@@ -1,0 +1,139 @@
+name: 'Deliver PR'
+description: 'Safety check, commit changes, and create/update PR idempotently'
+
+inputs:
+  issue-number:
+    description: 'Issue number for reference'
+    required: true
+  branch-name:
+    description: 'Branch name to commit to'
+    required: true
+  commit-message:
+    description: 'Commit message'
+    required: true
+  pr-title:
+    description: 'PR title'
+    required: true
+  pr-body:
+    description: 'PR body content'
+    required: true
+  github-token:
+    description: 'GitHub token for API operations'
+    required: true
+  auto-revert:
+    description: 'Auto-revert forbidden path changes (true/false)'
+    required: false
+    default: 'true'
+  base-branch:
+    description: 'Base branch for PR'
+    required: false
+    default: 'main'
+  repository:
+    description: 'Repository in owner/repo format'
+    required: true
+
+outputs:
+  pr-number:
+    description: 'PR number (empty if branch has no diff from base)'
+    value: ${{ steps.pr-ops.outputs.pr-number }}
+  pr-url:
+    description: 'PR URL (empty if branch has no diff from base)'
+    value: ${{ steps.pr-ops.outputs.pr-url }}
+  has-changes:
+    description: 'Whether there were uncommitted changes to commit (true/false)'
+    value: ${{ steps.check-changes.outputs.has-changes }}
+
+runs:
+  using: composite
+  steps:
+    - name: Safety check
+      shell: bash
+      run: |
+        source "${{ github.action_path }}/../../scripts/lib/common.sh"
+        safety_check "${{ inputs.auto-revert }}"
+
+    - name: Stage changes (defense in depth)
+      shell: bash
+      run: |
+        # Stage all changes first
+        git add .
+        
+        # Unstage forbidden paths (defense in depth)
+        git reset HEAD -- .github/ config/ scripts/ deploy.sh docker-compose*.yml Dockerfile* 2>/dev/null || true
+        
+        # Remove any staged .env files
+        git diff --cached --name-only | grep -E '\.env' | xargs -r git reset HEAD -- 2>/dev/null || true
+
+    - name: Check for changes
+      id: check-changes
+      shell: bash
+      run: |
+        if git diff --cached --quiet; then
+          echo "has-changes=false" >> $GITHUB_OUTPUT
+          echo "✅ No changes to commit"
+        else
+          echo "has-changes=true" >> $GITHUB_OUTPUT
+          echo "📝 Changes detected:"
+          git diff --cached --name-status
+        fi
+
+    - name: Commit and push
+      if: steps.check-changes.outputs.has-changes == 'true'
+      shell: bash
+      env:
+        COMMIT_MSG: ${{ inputs.commit-message }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # Commit staged changes
+        git commit -m "$COMMIT_MSG"
+        
+        # Force push to branch
+        git push origin HEAD:${{ inputs.branch-name }} --force
+
+    - name: Ensure PR exists
+      id: pr-ops
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_BODY: ${{ inputs.pr-body }}
+        PR_TITLE: ${{ inputs.pr-title }}
+      run: |
+        # Check if branch has any diff from base (covers both new and already-committed changes)
+        BRANCH_DIFF=$(git log origin/${{ inputs.base-branch }}..HEAD --oneline 2>/dev/null || true)
+        if [ -z "$BRANCH_DIFF" ]; then
+          echo "No commits ahead of ${{ inputs.base-branch }}, skipping PR creation"
+          exit 0
+        fi
+
+        # Check if PR already exists for this branch
+        EXISTING_PR=$(gh pr list \
+          --repo "${{ inputs.repository }}" \
+          --head "${{ inputs.branch-name }}" \
+          --json number,url \
+          --jq '.[0] | "\(.number)|\(.url)"' || echo "")
+        
+        if [ -n "$EXISTING_PR" ]; then
+          # PR exists - just output its info (don't overwrite body)
+          PR_NUMBER=$(echo "$EXISTING_PR" | cut -d'|' -f1)
+          PR_URL=$(echo "$EXISTING_PR" | cut -d'|' -f2)
+          
+          echo "pr-number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "pr-url=$PR_URL" >> $GITHUB_OUTPUT
+          echo "PR #$PR_NUMBER already exists: $PR_URL"
+        else
+          # Create new PR
+          PR_URL=$(gh pr create \
+            --repo "${{ inputs.repository }}" \
+            --base "${{ inputs.base-branch }}" \
+            --head "${{ inputs.branch-name }}" \
+            --title "$PR_TITLE" \
+            --body "$PR_BODY")
+          
+          PR_NUMBER=$(gh pr view "$PR_URL" --json number --jq '.number')
+          
+          echo "pr-number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "pr-url=$PR_URL" >> $GITHUB_OUTPUT
+          echo "Created PR #$PR_NUMBER: $PR_URL"
+        fi
