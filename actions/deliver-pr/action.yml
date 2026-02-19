@@ -112,7 +112,7 @@ runs:
           --repo "${{ inputs.repository }}" \
           --head "${{ inputs.branch-name }}" \
           --json number,url \
-          --jq '.[0] | "\(.number)|\(.url)"' || echo "")
+          --jq '.[0] // empty | "\(.number)|\(.url)"' || echo "")
         
         if [ -n "$EXISTING_PR" ]; then
           # PR exists - just output its info (don't overwrite body)
