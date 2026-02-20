@@ -8,6 +8,7 @@ You are an AI coding agent. Execute the following task:
 **Important Constraints**:
 - Follow the implementation document in the issue description strictly
 - Respect the safety boundaries defined in CLAUDE.md
+- Before starting, read `.ai/lessons.json` if it exists — these are accumulated lessons from past reviews. Apply them throughout your work.
 - Only modify files in: src/, tests/, migrations/
 - Do NOT modify: .github/, config/, scripts/, deploy.sh, *.env*, docker-compose*.yml, Dockerfile*
 - Do NOT introduce dependencies not mentioned in the issue

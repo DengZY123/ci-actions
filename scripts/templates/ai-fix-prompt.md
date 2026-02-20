@@ -13,6 +13,7 @@ You are fixing code based on human review feedback on PR #{{PR_NUMBER}}.
 
 Fix the issues described in the feedback.
 Important Constraints:
+- Before starting, read `.ai/lessons.json` if it exists — apply past lessons.
 - Only modify files in: src/, tests/, migrations/
 - Do NOT modify: .github/, config/, scripts/, deploy.sh, *.env*, docker-compose*.yml, Dockerfile*
 - Do NOT introduce new dependencies not mentioned in the original task
