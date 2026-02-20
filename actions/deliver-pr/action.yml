@@ -93,7 +93,6 @@ runs:
         git push origin HEAD:${{ inputs.branch-name }} --force
 
     - name: Ensure PR exists
-      if: steps.check-changes.outputs.has-changes == 'true'
       id: pr-ops
       shell: bash
       env:
@@ -102,7 +101,10 @@ runs:
         PR_TITLE: ${{ inputs.pr-title }}
       run: |
         # Check if branch has any diff from base (covers both new and already-committed changes)
-        BRANCH_DIFF=$(git log origin/${{ inputs.base-branch }}..HEAD --oneline 2>/dev/null || true)
+        # Fetch the feature branch ref in case agent already pushed directly
+        git fetch origin "${{ inputs.branch-name }}" 2>/dev/null || true
+        BRANCH_REF=$(git rev-parse "origin/${{ inputs.branch-name }}" 2>/dev/null || git rev-parse HEAD)
+        BRANCH_DIFF=$(git log "origin/${{ inputs.base-branch }}..$BRANCH_REF" --oneline 2>/dev/null || true)
         if [ -z "$BRANCH_DIFF" ]; then
           echo "No commits ahead of ${{ inputs.base-branch }}, skipping PR creation"
           exit 0
