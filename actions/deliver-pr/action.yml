@@ -127,17 +127,31 @@ runs:
           echo "PR #$PR_NUMBER already exists: $PR_URL"
         else
           # Create new PR
+          # gh pr create may exit non-zero even on success (permission issue reading PR details after creation)
+          # so we tolerate failure and verify via gh pr list
           PR_URL=$(gh pr create \
             --repo "${{ inputs.repository }}" \
             --base "${{ inputs.base-branch }}" \
             --head "${{ inputs.branch-name }}" \
             --title "$PR_TITLE" \
-            --body "$PR_BODY")
-          
-          # Extract PR number from URL (e.g. https://github.com/owner/repo/pull/42 → 42)
-          PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
-          
-          echo "pr-number=$PR_NUMBER" >> $GITHUB_OUTPUT
-          echo "pr-url=$PR_URL" >> $GITHUB_OUTPUT
-          echo "Created PR #$PR_NUMBER: $PR_URL"
+            --body "$PR_BODY" 2>&1) || true
+
+          # Verify PR was actually created by querying the API
+          CREATED_PR=$(gh pr list \
+            --repo "${{ inputs.repository }}" \
+            --head "${{ inputs.branch-name }}" \
+            --json number,url \
+            --jq '.[0] // empty | "\(.number)|\(.url)"' || echo "")
+
+          if [ -n "$CREATED_PR" ]; then
+            PR_NUMBER=$(echo "$CREATED_PR" | cut -d'|' -f1)
+            PR_URL=$(echo "$CREATED_PR" | cut -d'|' -f2)
+            echo "pr-number=$PR_NUMBER" >> $GITHUB_OUTPUT
+            echo "pr-url=$PR_URL" >> $GITHUB_OUTPUT
+            echo "PR #$PR_NUMBER created: $PR_URL"
+          else
+            echo "::error::Failed to create PR and none found for branch ${{ inputs.branch-name }}"
+            echo "gh pr create output: $PR_URL"
+            exit 1
+          fi
         fi
