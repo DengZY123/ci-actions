@@ -134,7 +134,8 @@ runs:
             --title "$PR_TITLE" \
             --body "$PR_BODY")
           
-          PR_NUMBER=$(gh pr view "$PR_URL" --json number --jq '.number')
+          # Extract PR number from URL (e.g. https://github.com/owner/repo/pull/42 → 42)
+          PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
           
           echo "pr-number=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "pr-url=$PR_URL" >> $GITHUB_OUTPUT
